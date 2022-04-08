@@ -181,31 +181,38 @@ fn main() {
     )
     .unwrap();
 
-    let (texture, tex_future) = {
-        let png_bytes = include_bytes!("image_img.png").to_vec();
-        let cursor = Cursor::new(png_bytes);
-        let decoder = png::Decoder::new(cursor);
-        let mut reader = decoder.read_info().unwrap();
-        let info = reader.info();
-        let dimensions = ImageDimensions::Dim2d {
-            width: info.width,
-            height: info.height,
-            array_layers: 1,
-        };
-        let mut image_data = Vec::new();
-        image_data.resize((info.width * info.height * 4) as usize, 0);
-        reader.next_frame(&mut image_data).unwrap();
+    let fft_len = 512;
 
-        let (image, future) = ImmutableImage::from_iter(
+    let (image, tex_future) = {
+        let mut image_data = Vec::new();
+        image_data.resize((fft_len * 2) as usize, 0);
+
+        let dimensions = ImageDimensions::Dim1d {
+            width: fft_len,
+            array_layers: 1
+        };
+
+        ImmutableImage::from_iter(
             image_data,
             dimensions,
             MipmapsCount::One,
-            Format::R8G8B8A8_SRGB,
+            Format::R32_SFLOAT,
             queue.clone(),
         )
-        .unwrap();
-        (ImageView::new_default(image).unwrap(), future)
+        .unwrap()
     };
+
+    let texture = ImageView::new_default(image).unwrap();
+
+    let fft_data = [0_f32; 512];
+
+    let buffer = CpuAccessibleBuffer::from_data(
+        device.clone(),
+        BufferUsage::all(),
+        true,
+        fft_data
+    )
+    .unwrap();
 
     let sampler = Sampler::new(
         device.clone(),
@@ -311,6 +318,8 @@ fn main() {
                     clear_values,
                 )
                 .unwrap()
+                .copy_buffer_to_image(buffer.clone(), image.clone())
+                .unwrap()
                 .set_viewport(0, [viewport.clone()])
                 .bind_pipeline_graphics(pipeline.clone())
                 .bind_descriptor_sets(
@@ -403,10 +412,10 @@ mod fs {
 layout(location = 0) in vec2 tex_coords;
 layout(location = 0) out vec4 f_color;
 
-layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(set = 0, binding = 0) uniform sampler1D tex;
 
 void main() {
-    f_color = texture(tex, tex_coords);
+    f_color = texture(tex, tex_coords.x);
 }"
     }
 }
