@@ -47,10 +47,54 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 use std::convert::TryFrom;
+use realfft::RealFftPlanner;
+use ringbuf::{RingBuffer, Consumer};
+use aubio::{Notes, Pitch, Onset, PitchMode, OnsetMode};
+use realfft::RealToComplex;
+
+const FRAME_SIZE: usize = 1024;
+const FFT_SIZE: usize = 513;
+const NUM_NOTES: usize = 8;
 
 fn main() {
+    let (client, _status) =
+        jack::Client::new("rust_jack_simple", jack::ClientOptions::NO_START_SERVER).unwrap();
+    client.set_buffer_size(FRAME_SIZE as u32).unwrap();
+
+    let ringbuf = RingBuffer::<[f32; FRAME_SIZE]>::new(2);
+    let (mut writer, mut reader) = ringbuf.split();
+
+    let inp = client
+        .register_port("rust_in", jack::AudioIn::default())
+        .unwrap();
+    let process_callback = move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
+        let ins = inp.as_slice(ps);
+
+        let mut m = [0_f32; FRAME_SIZE];
+
+        for i in 0..FRAME_SIZE {
+            m[i] = ins[i];
+        }
+
+        let _ = writer.push(m);
+
+        jack::Control::Continue
+    };
+    let process = jack::ClosureProcessHandler::new(process_callback);
+
+    // Activate the client, which starts the processing.
+    let active_client = client.activate_async((), process).unwrap();
     // The start of this example is exactly the same as `triangle`. You should read the
     // `triangle` example if you haven't done so yet.
+
+    let mut real_planner = RealFftPlanner::<f32>::new();
+    let r2c = real_planner.plan_fft_forward(FRAME_SIZE);
+
+    let mut fft_data = [realfft::num_complex::Complex {re: 0.0, im: 0.0}; FFT_SIZE];
+
+    ///////////
+    // Graphics
+    ///////////
 
     let required_extensions = vulkano_win::required_extensions();
     let instance = Instance::new(InstanceCreateInfo {
@@ -142,16 +186,16 @@ fn main() {
 
     let vertices = [
         Vertex {
-            position: [-0.5, -0.5],
+            position: [-1.0, -1.0],
         },
         Vertex {
-            position: [-0.5, 0.5],
+            position: [-1.0, 1.0],
         },
         Vertex {
-            position: [0.5, -0.5],
+            position: [1.0, -1.0],
         },
         Vertex {
-            position: [0.5, 0.5],
+            position: [1.0, 1.0],
         },
     ];
     let vertex_buffer = CpuAccessibleBuffer::<[Vertex]>::from_iter(
@@ -181,45 +225,12 @@ fn main() {
     )
     .unwrap();
 
-    let fft_len = 512;
-
-    let (image, tex_future) = {
-        let mut image_data = Vec::new();
-        image_data.resize((fft_len * 2) as usize, 0);
-
-        let dimensions = ImageDimensions::Dim1d {
-            width: fft_len,
-            array_layers: 1
-        };
-
-        ImmutableImage::from_iter(
-            image_data,
-            dimensions,
-            MipmapsCount::One,
-            Format::R32_SFLOAT,
-            queue.clone(),
-        )
-        .unwrap()
-    };
-
-    let texture = ImageView::new_default(image).unwrap();
-
-    let fft_data = [0_f32; 512];
-
-    let buffer = CpuAccessibleBuffer::from_data(
-        device.clone(),
-        BufferUsage::all(),
-        true,
-        fft_data
-    )
-    .unwrap();
-
     let sampler = Sampler::new(
         device.clone(),
         SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::Repeat; 3],
+            address_mode: [SamplerAddressMode::MirroredRepeat; 3],
             ..Default::default()
         },
     )
@@ -237,16 +248,7 @@ fn main() {
         .build(device.clone())
         .unwrap();
 
-    let layout = pipeline.layout().set_layouts().get(0).unwrap();
-    let set = PersistentDescriptorSet::new(
-        layout.clone(),
-        [WriteDescriptorSet::image_view_sampler(
-            0,
-            texture.clone(),
-            sampler.clone(),
-        )],
-    )
-    .unwrap();
+    pipeline.layout().set_layouts();
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -256,7 +258,7 @@ fn main() {
     let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut viewport);
 
     let mut recreate_swapchain = false;
-    let mut previous_frame_end = Some(tex_future.boxed());
+    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -304,6 +306,45 @@ fn main() {
                 recreate_swapchain = true;
             }
 
+            let ins_m = reader.pop();
+
+            match ins_m {
+                Some(ins) => r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap(),
+                None => ()
+            };
+
+            let (image, tex_future) = {
+                let mut image_data = fft_data.iter().map(|&e| [e.re, e.im] ).collect::<Vec::<[f32; 2]>>();
+
+                let dimensions = ImageDimensions::Dim1d {
+                    width: FFT_SIZE as u32,
+                    array_layers: 1
+                };
+
+                ImmutableImage::from_iter(
+                    image_data,
+                    dimensions,
+                    MipmapsCount::One,
+                    Format::R32G32_SFLOAT,
+                    queue.clone(),
+                    )
+                    .unwrap()
+            };
+
+            let texture = ImageView::new_default(image).unwrap();
+
+            let layout = pipeline.layout().set_layouts().get(0).unwrap();
+
+            let set = PersistentDescriptorSet::new(
+                layout.clone(),
+                [WriteDescriptorSet::image_view_sampler(
+                    0,
+                    texture.clone(),
+                    sampler.clone(),
+                    )],
+                    )
+                .unwrap();
+
             let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
             let mut builder = AutoCommandBufferBuilder::primary(
                 device.clone(),
@@ -317,8 +358,6 @@ fn main() {
                     SubpassContents::Inline,
                     clear_values,
                 )
-                .unwrap()
-                .copy_buffer_to_image(buffer.clone(), image.clone())
                 .unwrap()
                 .set_viewport(0, [viewport.clone()])
                 .bind_pipeline_graphics(pipeline.clone())
@@ -360,6 +399,8 @@ fn main() {
         }
         _ => (),
     });
+
+    active_client.deactivate().unwrap();
 }
 
 /// This method is called once during initialization, then again whenever the window is resized
@@ -398,7 +439,7 @@ layout(location = 0) out vec2 tex_coords;
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
-    tex_coords = position + vec2(0.5);
+    tex_coords = vec2((position.x + 1.0) * 0.5, 1.0 - position.y);
 }"
     }
 }
@@ -415,7 +456,8 @@ layout(location = 0) out vec4 f_color;
 layout(set = 0, binding = 0) uniform sampler1D tex;
 
 void main() {
-    f_color = texture(tex, tex_coords.x);
+    vec4 fft = texture(tex, tex_coords.x);
+    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, 0.0, 0.0, 1.0);
 }"
     }
 }
