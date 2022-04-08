@@ -12,7 +12,7 @@ use std::{io::Cursor, sync::Arc};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, single_layout_pool::SingleLayoutDescSetPool},
     device::{
         physical::{PhysicalDevice, PhysicalDeviceType},
         Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
@@ -250,6 +250,10 @@ fn main() {
 
     pipeline.layout().set_layouts();
 
+
+    let layout = pipeline.layout().set_layouts().get(0).unwrap();
+    let mut pool = SingleLayoutDescSetPool::new(layout.clone());
+
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
         dimensions: [0.0, 0.0],
@@ -313,7 +317,7 @@ fn main() {
                 None => ()
             };
 
-            let (image, tex_future) = {
+            let (texture, mut tex_future) = {
                 let mut image_data = fft_data.iter().map(|&e| [e.re, e.im] ).collect::<Vec::<[f32; 2]>>();
 
                 let dimensions = ImageDimensions::Dim1d {
@@ -321,22 +325,20 @@ fn main() {
                     array_layers: 1
                 };
 
-                ImmutableImage::from_iter(
+                let (image, future) = ImmutableImage::from_iter(
                     image_data,
                     dimensions,
                     MipmapsCount::One,
                     Format::R32G32_SFLOAT,
                     queue.clone(),
                     )
-                    .unwrap()
+                    .unwrap();
+
+                (ImageView::new_default(image).unwrap(), future)
             };
 
-            let texture = ImageView::new_default(image).unwrap();
 
-            let layout = pipeline.layout().set_layouts().get(0).unwrap();
-
-            let set = PersistentDescriptorSet::new(
-                layout.clone(),
+            let set = pool.next(
                 [WriteDescriptorSet::image_view_sampler(
                     0,
                     texture.clone(),
@@ -396,6 +398,7 @@ fn main() {
                     previous_frame_end = Some(sync::now(device.clone()).boxed());
                 }
             }
+            tex_future.cleanup_finished();
         }
         _ => (),
     });
