@@ -8,11 +8,11 @@
 // according to those terms.
 
 use bytemuck::{Pod, Zeroable};
-use std::{io::Cursor, sync::Arc};
+use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, single_layout_pool::SingleLayoutDescSetPool},
+    descriptor_set::{WriteDescriptorSet, single_layout_pool::SingleLayoutDescSetPool},
     device::{
         physical::{PhysicalDevice, PhysicalDeviceType},
         Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
@@ -48,9 +48,8 @@ use winit::{
 };
 use std::convert::TryFrom;
 use realfft::RealFftPlanner;
-use ringbuf::{RingBuffer, Consumer};
+use ringbuf::RingBuffer;
 use aubio::{Notes, Pitch, Onset, PitchMode, OnsetMode};
-use realfft::RealToComplex;
 
 const FRAME_SIZE: usize = 1024;
 const FFT_SIZE: usize = 513;
@@ -92,6 +91,18 @@ fn main() {
 
     let mut fft_data = [realfft::num_complex::Complex {re: 0.0, im: 0.0}; FFT_SIZE];
 
+    let mut image_data = [[0_f32; 2]; FFT_SIZE];
+
+    assert_eq!(r2c.make_output_vec().len(), FFT_SIZE);
+
+    let mut pitcher  = Pitch::new(PitchMode::Yinfft, FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
+    let mut noter    = Notes::new(FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
+    let mut onsetter = Onset::new(OnsetMode::Energy, FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
+
+    let mut rms   = 0.0;
+    let mut pitch = 0.0;
+    //let mut notes = 0.0;
+    let mut onset = 0.0;
     ///////////
     // Graphics
     ///////////
@@ -250,7 +261,6 @@ fn main() {
 
     pipeline.layout().set_layouts();
 
-
     let layout = pipeline.layout().set_layouts().get(0).unwrap();
     let mut pool = SingleLayoutDescSetPool::new(layout.clone());
 
@@ -313,12 +323,21 @@ fn main() {
             let ins_m = reader.pop();
 
             match ins_m {
-                Some(ins) => r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap(),
+                Some(ins) => {
+                    rms   = (ins.iter().map(|x| x*x).sum::<f32>() / FRAME_SIZE as f32).sqrt();
+                    pitch = pitcher.do_result(ins.as_ref()).unwrap();
+                    //notes = noter.do_result(ins.as_ref()).unwrap();
+                    onset = onsetter.do_result(ins.as_ref()).unwrap();
+                    r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap();
+                },
                 None => ()
             };
 
             let (texture, mut tex_future) = {
-                let mut image_data = fft_data.iter().map(|&e| [e.re, e.im] ).collect::<Vec::<[f32; 2]>>();
+                for i in 0..FFT_SIZE {
+                    image_data[i][0] = image_data[i][0] * 0.1 + fft_data[i].re * 0.9;
+                    image_data[i][1] = image_data[i][1] * 0.1 + fft_data[i].im * 0.9;
+                }
 
                 let dimensions = ImageDimensions::Dim1d {
                     width: FFT_SIZE as u32,
@@ -337,7 +356,6 @@ fn main() {
                 (ImageView::new_default(image).unwrap(), future)
             };
 
-
             let set = pool.next(
                 [WriteDescriptorSet::image_view_sampler(
                     0,
@@ -346,6 +364,12 @@ fn main() {
                     )],
                     )
                 .unwrap();
+
+            let push_constants = fs::ty::PushConstantData {
+                rms,
+                pitch,
+                onset
+            };
 
             let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
             let mut builder = AutoCommandBufferBuilder::primary(
@@ -370,6 +394,7 @@ fn main() {
                     set.clone(),
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
+                .push_constants(pipeline.layout().clone(), 0, push_constants)
                 .draw(vertex_buffer.len() as u32, 1, 0, 0)
                 .unwrap()
                 .end_render_pass()
@@ -458,9 +483,15 @@ layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 0) uniform sampler1D tex;
 
+layout(push_constant) uniform PushConstantData {
+  float rms;
+  float pitch;
+  float onset;
+} pc;
+
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, pc.rms * 0.8, pc.onset * 0.1, 1.0);
 }"
     }
 }
