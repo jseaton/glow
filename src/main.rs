@@ -53,7 +53,7 @@ use aubio::{Notes, Pitch, Onset, PitchMode, OnsetMode};
 
 const FRAME_SIZE: usize = 1024;
 const FFT_SIZE: usize = 513;
-const NUM_NOTES: usize = 8;
+const NUM_NOTES: usize = 4;
 
 fn main() {
     let (client, _status) =
@@ -99,10 +99,6 @@ fn main() {
     let mut noter    = Notes::new(FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
     let mut onsetter = Onset::new(OnsetMode::Energy, FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
 
-    let mut rms   = 0.0;
-    let mut pitch = 0.0;
-    //let mut notes = 0.0;
-    let mut onset = 0.0;
     ///////////
     // Graphics
     ///////////
@@ -274,6 +270,14 @@ fn main() {
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+    let mut push_constants = fs::ty::PushConstantData {
+        rms:   0.0,
+        pitch: 0.0,
+        onset: 0.0,
+        notes: [[0.0, 0.0]; NUM_NOTES],
+        _dummy0: [0; 4]
+    };
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -324,10 +328,13 @@ fn main() {
 
             match ins_m {
                 Some(ins) => {
-                    rms   = (ins.iter().map(|x| x*x).sum::<f32>() / FRAME_SIZE as f32).sqrt();
-                    pitch = pitcher.do_result(ins.as_ref()).unwrap();
-                    //notes = noter.do_result(ins.as_ref()).unwrap();
-                    onset = onsetter.do_result(ins.as_ref()).unwrap();
+                    push_constants.rms   = (ins.iter().map(|x| x*x).sum::<f32>() / FRAME_SIZE as f32).sqrt();
+                    push_constants.pitch = pitcher.do_result(ins.as_ref()).unwrap();
+                    let notes = noter.do_result(ins.as_ref()).unwrap();
+                    for i in 0..notes.len() {
+                        push_constants.notes[i] = [notes[i].pitch, notes[i].velocity];
+                    }
+                    push_constants.onset = onsetter.do_result(ins.as_ref()).unwrap();
                     r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap();
                 },
                 None => ()
@@ -364,12 +371,6 @@ fn main() {
                     )],
                     )
                 .unwrap();
-
-            let push_constants = fs::ty::PushConstantData {
-                rms,
-                pitch,
-                onset
-            };
 
             let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
             let mut builder = AutoCommandBufferBuilder::primary(
@@ -487,6 +488,7 @@ layout(push_constant) uniform PushConstantData {
   float rms;
   float pitch;
   float onset;
+  vec2  notes[4];
 } pc;
 
 void main() {
