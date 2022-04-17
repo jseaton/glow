@@ -277,7 +277,7 @@ fn main() {
     let mut push_constants = fs::ty::PushConstantData {
         rms:   0.0,
         lowpass: 0.0,
-        specflux: 0.0
+        specflux: [0.0; 8]
     };
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -343,15 +343,18 @@ fn main() {
 
                     let spectrum = fft_data.iter().map(|x| (x.re*x.re + x.im*x.im).sqrt() ).collect::<Vec<_>>();
 
-                    let mut specflux = 0.0;
-                    let mut specsum  = 0.0;
+                    let mut specflux = [0.0; 8];
 
-                    zip(prev_spectrum.iter(), spectrum.iter()).for_each(|(&p, &s)| {
-                        specsum += p;
-                        if s > p { specflux += s - p };
-                    });
-                    push_constants.specflux = push_constants.specflux * 0.1 + specflux * 0.9;
+                    let it = zip(prev_spectrum.iter(), spectrum.iter()).collect::<Vec<_>>();
+                    let mut chunks = it.chunks(FFT_SIZE/8);
 
+                    for i in 0..8 {
+                        chunks.next().unwrap().iter().for_each(|(&p, &s)| {
+                            if s > p { specflux[i] += s - p };
+                        });
+
+                        push_constants.specflux[i] = push_constants.specflux[i] * 0.1 + specflux[i] * 0.9;
+                    }
 
                     for i in 0..FFT_SIZE {
                         prev_spectrum[i] = spectrum[i];
@@ -507,16 +510,23 @@ layout(set = 0, binding = 0) uniform sampler1D tex;
 layout(push_constant) uniform PushConstantData {
   float rms;
   float lowpass;
-  float specflux;
+  float specflux[8];
 } pc;
 
+#define rms pc.rms
+#define lowpass pc.lowpass
+#define specflux pc.specflux
+
+float sf() {
+    return specflux[0] + specflux[1] + specflux[2] + specflux[3] + specflux[4] + specflux[5] + specflux[6] + specflux[7];
+}
 bool box(float x1, float x2, float y1, float y2) {
     return tex_coords.x >= x1 && tex_coords.y >= y1 && tex_coords.x <= x2 && tex_coords.y <= y2;
 }
 
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.4, 0.6, 0.4, 0.6) ? pc.specflux * 0.01 : 0.0, 0.0, 1.0);
+    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? sf() * 0.01 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 0.1 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
 }"
     }
 }
