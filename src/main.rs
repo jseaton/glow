@@ -55,11 +55,10 @@ use std::iter::zip;
 
 const FRAME_SIZE: usize = 1024;
 const FFT_SIZE: usize = 513;
-const NUM_NOTES: usize = 4;
 
 fn main() {
     let (client, _status) =
-        jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER).unwrap();
+        jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER | jack::ClientOptions::SESSION_ID).unwrap();
     client.set_buffer_size(FRAME_SIZE as u32).unwrap();
 
     let ringbuf = RingBuffer::<[f32; FRAME_SIZE]>::new(2);
@@ -100,6 +99,9 @@ fn main() {
     let mut rms = 0.0;
 
     let mut prev_spectrum = [0_f32; FFT_SIZE];
+
+    
+    let win = window::hamming(FRAME_SIZE);
 
     ///////////
     // Graphics
@@ -275,7 +277,7 @@ fn main() {
     let mut push_constants = fs::ty::PushConstantData {
         rms:   0.0,
         lowpass: 0.0,
-        specflux: [0.0; 8]
+        specflux: 0.0
     };
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -333,25 +335,22 @@ fn main() {
 
                     rms = push_constants.rms;
 
-                    r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap();
+                    let mut windowed = [0_f32; FRAME_SIZE];
+
+                    win.apply(&ins, &mut windowed);
+
+                    r2c.process(&mut windowed.to_owned(), &mut fft_data).unwrap();
 
                     let spectrum = fft_data.iter().map(|x| (x.re*x.re + x.im*x.im).sqrt() ).collect::<Vec<_>>();
 
-                    let mut specflux = [0.0; 8];
+                    let mut specflux = 0.0;
+                    let mut specsum  = 0.0;
 
-                    let it = zip(prev_spectrum.iter(), spectrum.iter()).collect::<Vec<_>>();
-                    let mut chunks = it.chunks(FFT_SIZE/8);
-
-                    for i in 0..8 {
-                        let mut specsum = 0.0;
-                        chunks.next().unwrap().iter().for_each(|(&p, &s)| {
-                            specsum += p;
-                            if s > p { specflux[i] += s - p };
-                        });
-                        specflux[i] = if specsum > 10.0 { specflux[i] } else { 0.0 };
-
-                        push_constants.specflux[i] = push_constants.specflux[i] * 0.1 + specflux[i] * 0.9;
-                    }
+                    zip(prev_spectrum.iter(), spectrum.iter()).for_each(|(&p, &s)| {
+                        specsum += p;
+                        if s > p { specflux += s - p };
+                    });
+                    push_constants.specflux = push_constants.specflux * 0.1 + specflux * 0.9;
 
 
                     for i in 0..FFT_SIZE {
@@ -489,7 +488,7 @@ layout(location = 0) out vec2 tex_coords;
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
-    tex_coords = vec2((position.x + 1.0) * 0.5, 1.0 - position.y);
+    tex_coords = vec2((position.x + 1.0) * 0.5, (1.0 - position.y) * 0.5);
 }"
     }
 }
@@ -508,16 +507,16 @@ layout(set = 0, binding = 0) uniform sampler1D tex;
 layout(push_constant) uniform PushConstantData {
   float rms;
   float lowpass;
-  float specflux[8];
+  float specflux;
 } pc;
 
-float sf() {
-    return pc.specflux[0] + pc.specflux[1] + pc.specflux[2] + pc.specflux[3] + pc.specflux[4] + pc.specflux[5] + pc.specflux[6] + pc.specflux[7];
+bool box(float x1, float x2, float y1, float y2) {
+    return tex_coords.x >= x1 && tex_coords.y >= y1 && tex_coords.x <= x2 && tex_coords.y <= y2;
 }
 
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, sf() * 0.01, 0.0, 1.0);
+    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.4, 0.6, 0.4, 0.6) ? pc.specflux * 0.01 : 0.0, 0.0, 1.0);
 }"
     }
 }
