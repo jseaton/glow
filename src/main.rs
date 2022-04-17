@@ -50,7 +50,7 @@ use std::convert::TryFrom;
 use realfft::RealFftPlanner;
 use ringbuf::RingBuffer;
 use dsp::window;
-
+use std::time::SystemTime;
 use std::iter::zip;
 
 const FRAME_SIZE: usize = 1024;
@@ -277,8 +277,11 @@ fn main() {
     let mut push_constants = fs::ty::PushConstantData {
         rms:   0.0,
         lowpass: 0.0,
-        specflux: [0.0; 8]
+        specflux: [0.0; 8],
+        time: 0.0
     };
+
+    let start_time = SystemTime::now();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -359,6 +362,8 @@ fn main() {
                     for i in 0..FFT_SIZE {
                         prev_spectrum[i] = spectrum[i];
                     }
+
+                    push_constants.time = SystemTime::now().duration_since(start_time).unwrap().as_secs() as f32;
                 },
                 None => ()
             };
@@ -511,11 +516,15 @@ layout(push_constant) uniform PushConstantData {
   float rms;
   float lowpass;
   float specflux[8];
+  float time;
 } pc;
 
 #define rms pc.rms
 #define lowpass pc.lowpass
 #define specflux pc.specflux
+
+// ShaderToy compat
+#define iTime pc.time
 
 float sf() {
     return specflux[0] + specflux[1] + specflux[2] + specflux[3] + specflux[4] + specflux[5] + specflux[6] + specflux[7];
