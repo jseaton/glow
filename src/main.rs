@@ -49,7 +49,9 @@ use winit::{
 use std::convert::TryFrom;
 use realfft::RealFftPlanner;
 use ringbuf::RingBuffer;
-use aubio::{Notes, Pitch, Onset, PitchMode, OnsetMode};
+use dsp::window;
+
+use std::iter::zip;
 
 const FRAME_SIZE: usize = 1024;
 const FFT_SIZE: usize = 513;
@@ -57,7 +59,7 @@ const NUM_NOTES: usize = 4;
 
 fn main() {
     let (client, _status) =
-        jack::Client::new("rust_jack_simple", jack::ClientOptions::NO_START_SERVER).unwrap();
+        jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER).unwrap();
     client.set_buffer_size(FRAME_SIZE as u32).unwrap();
 
     let ringbuf = RingBuffer::<[f32; FRAME_SIZE]>::new(2);
@@ -95,9 +97,9 @@ fn main() {
 
     assert_eq!(r2c.make_output_vec().len(), FFT_SIZE);
 
-    let mut pitcher  = Pitch::new(PitchMode::Yinfft, FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
-    let mut noter    = Notes::new(FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
-    let mut onsetter = Onset::new(OnsetMode::Energy, FRAME_SIZE, FRAME_SIZE, 44100).unwrap();
+    let mut rms = 0.0;
+
+    let mut prev_spectrum = [0_f32; FFT_SIZE];
 
     ///////////
     // Graphics
@@ -272,10 +274,8 @@ fn main() {
 
     let mut push_constants = fs::ty::PushConstantData {
         rms:   0.0,
-        pitch: 0.0,
-        onset: 0.0,
-        notes: [[0.0, 0.0]; NUM_NOTES],
-        _dummy0: [0; 4]
+        lowpass: 0.0,
+        specflux: [0.0; 8]
     };
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -329,13 +329,34 @@ fn main() {
             match ins_m {
                 Some(ins) => {
                     push_constants.rms   = (ins.iter().map(|x| x*x).sum::<f32>() / FRAME_SIZE as f32).sqrt();
-                    push_constants.pitch = pitcher.do_result(ins.as_ref()).unwrap();
-                    let notes = noter.do_result(ins.as_ref()).unwrap();
-                    for i in 0..notes.len() {
-                        push_constants.notes[i] = [notes[i].pitch, notes[i].velocity];
-                    }
-                    push_constants.onset = onsetter.do_result(ins.as_ref()).unwrap();
+                    push_constants.lowpass = push_constants.rms - rms;
+
+                    rms = push_constants.rms;
+
                     r2c.process(&mut ins.to_owned(), &mut fft_data).unwrap();
+
+                    let spectrum = fft_data.iter().map(|x| (x.re*x.re + x.im*x.im).sqrt() ).collect::<Vec<_>>();
+
+                    let mut specflux = [0.0; 8];
+
+                    let it = zip(prev_spectrum.iter(), spectrum.iter()).collect::<Vec<_>>();
+                    let mut chunks = it.chunks(FFT_SIZE/8);
+
+                    for i in 0..8 {
+                        let mut specsum = 0.0;
+                        chunks.next().unwrap().iter().for_each(|(&p, &s)| {
+                            specsum += p;
+                            if s > p { specflux[i] += s - p };
+                        });
+                        specflux[i] = if specsum > 10.0 { specflux[i] } else { 0.0 };
+
+                        push_constants.specflux[i] = push_constants.specflux[i] * 0.1 + specflux[i] * 0.9;
+                    }
+
+
+                    for i in 0..FFT_SIZE {
+                        prev_spectrum[i] = spectrum[i];
+                    }
                 },
                 None => ()
             };
@@ -486,14 +507,17 @@ layout(set = 0, binding = 0) uniform sampler1D tex;
 
 layout(push_constant) uniform PushConstantData {
   float rms;
-  float pitch;
-  float onset;
-  vec2  notes[4];
+  float lowpass;
+  float specflux[8];
 } pc;
+
+float sf() {
+    return pc.specflux[0] + pc.specflux[1] + pc.specflux[2] + pc.specflux[3] + pc.specflux[4] + pc.specflux[5] + pc.specflux[6] + pc.specflux[7];
+}
 
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, pc.rms * 0.8, pc.onset * 0.1, 1.0);
+    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, sf() * 0.01, 0.0, 1.0);
 }"
     }
 }
