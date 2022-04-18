@@ -52,9 +52,15 @@ use ringbuf::RingBuffer;
 use dsp::window;
 use std::time::SystemTime;
 use std::iter::zip;
+use num_complex::Complex;
 
 const FRAME_SIZE: usize = 1024;
 const FFT_SIZE: usize = 513;
+
+fn compress(x: &Complex<f32>) -> f32 {
+    let mag = (x.re * x.re + x.im * x.im).sqrt();
+    return (1.0 + 1.5 * mag).ln();
+}
 
 fn main() {
     let (client, _status) =
@@ -344,7 +350,7 @@ fn main() {
 
                     r2c.process(&mut windowed.to_owned(), &mut fft_data).unwrap();
 
-                    let spectrum = fft_data.iter().map(|x| (x.re*x.re + x.im*x.im).sqrt() ).collect::<Vec<_>>();
+                    let spectrum = fft_data.iter().map(compress).collect::<Vec<_>>();
 
                     let mut specflux = [0.0; 8];
 
@@ -363,7 +369,7 @@ fn main() {
                         prev_spectrum[i] = spectrum[i];
                     }
 
-                    push_constants.time = SystemTime::now().duration_since(start_time).unwrap().as_secs() as f32;
+                    push_constants.time = (SystemTime::now().duration_since(start_time).unwrap().as_millis() as f32) / 1000.0;
                 },
                 None => ()
             };
@@ -525,17 +531,32 @@ layout(push_constant) uniform PushConstantData {
 
 // ShaderToy compat
 #define iTime pc.time
+#define iResolution vec2(800.0, 600.0)
+#define fragCoord (tex_coords * iResolution)
+
+#define t iTime
+#define r iResolution.xy
 
 float sf() {
     return specflux[0] + specflux[1] + specflux[2] + specflux[3] + specflux[4] + specflux[5] + specflux[6] + specflux[7];
 }
-bool box(float x1, float x2, float y1, float y2) {
-    return tex_coords.x >= x1 && tex_coords.y >= y1 && tex_coords.x <= x2 && tex_coords.y <= y2;
-}
 
-void main() {
-    vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? sf() * 0.01 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 0.1 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
-}"
+void main(){
+	vec3 c;
+	float l,z=t;
+	for(int i=0;i<3;i++) {
+		vec2 uv,p=fragCoord.xy/r;
+		uv=p;
+		p-=.5;
+		p.x*=r.x/r.y;
+		z+=.07;
+		l=length(p);
+		uv+=p/l*(sin(z)+1.)*abs(sin(l*9.-z-z));
+		c[i]=.01/length(mod(uv,1.)-.5);
+	}
+    float f = texture(tex, tex_coords.x).x;
+	f_color=vec4((c/l) * specflux[3] * 0.1 + vec3(f, 0.0, 0.0),t);
+}
+"
     }
 }
