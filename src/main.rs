@@ -50,6 +50,8 @@ use dsp::window;
 use std::time::SystemTime;
 use std::iter::zip;
 use num_complex::Complex;
+use std::io::{BufReader, BufRead};
+use std::fs::File;
 
 const FRAME_SIZE: usize = 512;
 const FFT_SIZE: usize = FRAME_SIZE / 2 + 1;
@@ -198,28 +200,49 @@ fn main() {
     #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
     struct Vertex {
         position: [f32; 2],
+        coord:    [f32; 2],
+        intensity: f32
     }
-    impl_vertex!(Vertex, position);
+    impl_vertex!(Vertex, position, coord, intensity);
 
-    let vertices = [
-        Vertex {
-            position: [-1.0, -1.0],
-        },
-        Vertex {
-            position: [-1.0, 1.0],
-        },
-        Vertex {
-            position: [1.0, -1.0],
-        },
-        Vertex {
-            position: [1.0, 1.0],
-        },
-    ];
+    let file = BufReader::new(File::open("standard_16x9.data").unwrap());
+
+    let vertices = file.lines().skip(2).map(|line| {
+        let l = line.unwrap().split_whitespace().map(|x| x.parse::<f32>().unwrap()).collect::<Vec<f32>>();
+        Vertex { position: [l[0] / 1.777780, -l[1]], coord: [l[2], l[3]], intensity: l[4] }
+    }).collect::<Vec<_>>();
+
+    let width  = 100;
+    let height =  60;
+
+    let mut indices = Vec::<u16>::new();
+    for i in 0..width-1 {
+        for j in 0..height-1 {
+            if vertices[(i*height + j) as usize].intensity > 0.1 {
+                indices.push(i*height + j);
+                indices.push((i+1)*height + j+1);
+                indices.push(i*height + j+1);
+
+                indices.push(i*height + j);
+                indices.push((i+1)*height + j+1);
+                indices.push((i+1)*height + j);
+            }
+        }
+    }
+
     let vertex_buffer = CpuAccessibleBuffer::<[Vertex]>::from_iter(
         device.clone(),
         BufferUsage::all(),
         false,
         vertices,
+    )
+    .unwrap();
+
+    let index_buffer = CpuAccessibleBuffer::<[u16]>::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        indices,
     )
     .unwrap();
 
@@ -441,8 +464,9 @@ fn main() {
                     set.clone(),
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
+                .bind_index_buffer(index_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)
-                .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                 .unwrap()
                 .end_render_pass()
                 .unwrap();
@@ -510,11 +534,13 @@ mod vs {
 #version 450
 
 layout(location = 0) in vec2 position;
+layout(location = 2) in vec2 coord;
+layout(location = 3) in float intensity;
 layout(location = 0) out vec2 tex_coords;
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
-    tex_coords = vec2((position.x + 1.0) * 0.5, (1.0 - position.y) * 0.5);
+    tex_coords = coord;
 }"
     }
 }
@@ -555,7 +581,7 @@ bool box(float x1, float x2, float y1, float y2) {
 
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? specavg * 0.05 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 1.5 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
+    f_color = vec4(int(tex_coords.x * 100.0) % 10, int(tex_coords.y * 100.0) % 10, 0.0, 1.0); //vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? specavg * 0.05 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 1.5 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
 }
 "
     }
