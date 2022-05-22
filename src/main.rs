@@ -32,6 +32,7 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
+    shader::ShaderModule,
     swapchain::{
         acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
     },
@@ -50,8 +51,9 @@ use dsp::window;
 use std::time::SystemTime;
 use std::iter::zip;
 use num_complex::Complex;
-use std::io::{BufReader, BufRead};
+use std::io::{BufReader, BufRead, Read};
 use std::fs::File;
+use std::env;
 
 const FRAME_SIZE: usize = 512;
 const FFT_SIZE: usize = FRAME_SIZE / 2 + 1;
@@ -209,7 +211,7 @@ fn main() {
 
     let vertices = file.lines().skip(2).map(|line| {
         let l = line.unwrap().split_whitespace().map(|x| x.parse::<f32>().unwrap()).collect::<Vec<f32>>();
-        Vertex { position: [l[0] / 1.777780, -l[1]], coord: [l[2], l[3]], intensity: l[4] }
+        Vertex { position: [l[0] / 1.777780, -l[1]], coord: [l[2], -l[3]], intensity: l[4] }
     }).collect::<Vec<_>>();
 
     let width  = 100;
@@ -247,7 +249,15 @@ fn main() {
     .unwrap();
 
     let vs = vs::load(device.clone()).unwrap();
-    let fs = fs::load(device.clone()).unwrap();
+
+    let fs = {
+        let arg = env::args().nth(1).unwrap();
+        let mut f = File::open(&arg)
+            .expect(&("Can't find file ".to_owned() + &arg));
+        let mut v = vec![];
+        f.read_to_end(&mut v).unwrap();
+        unsafe { ShaderModule::from_bytes(device.clone(), &v) }.unwrap()
+    };
 
     let render_pass = vulkano::single_pass_renderpass!(device.clone(),
         attachments: {
@@ -581,7 +591,9 @@ bool box(float x1, float x2, float y1, float y2) {
 
 void main() {
     vec4 fft = texture(tex, tex_coords.x);
-    f_color = vec4(int(tex_coords.x * 100.0) % 10, int(tex_coords.y * 100.0) % 10, 0.0, 1.0); //vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? specavg * 0.05 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 1.5 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
+    vec2 coord = 2.0*tex_coords - vec2(0.5, 0.5);
+    float d = sqrt(coord.x*coord.x + coord.y*coord.y);
+    f_color = vec4(d, d, d, 1.0); //vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? specavg * 0.05 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 1.5 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
 }
 "
     }
