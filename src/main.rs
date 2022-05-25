@@ -221,12 +221,46 @@ fn main() {
     for i in 0..width-1 {
         for j in 0..height-1 {
             if vertices[(i*height + j) as usize].intensity > 0.1 {
+                // I don't know why I need this weird dummy triangle???
+                if j == 0 {
+                    indices.push(i*height + j);
+                    indices.push(i*height + j);
+                    indices.push(i*height + j);
+                } else {
+                    indices.pop();
+                    indices.pop();
+                    indices.pop();
+                }
+
                 indices.push(i*height + j);
                 indices.push((i+1)*height + j+1);
                 indices.push(i*height + j+1);
 
-                indices.push(i*height + j);
+                println!("({} {}) ({} {}) ({} {}) ({} {}) {} {} {} {}",
+                vertices[(i*height + j) as usize].position[0],
+                vertices[(i*height + j) as usize].position[1],
+
+                vertices[((i+1)*height + j+1) as usize].position[0],
+                vertices[((i+1)*height + j+1) as usize].position[1],
+
+                vertices[(i*height + j+1) as usize].position[0],
+                vertices[(i*height + j+1) as usize].position[1],
+
+                vertices[((i+1)*height + j) as usize].position[0],
+                vertices[((i+1)*height + j) as usize].position[1],
+
+                vertices[(i*height + j) as usize].intensity,
+                vertices[((i+1)*height + j+1) as usize].intensity,
+                vertices[(i*height + j+1) as usize].intensity,
+                vertices[((i+1)*height + j) as usize].intensity
+                );
+
                 indices.push((i+1)*height + j+1);
+                indices.push(i*height + j);
+                indices.push((i+1)*height + j);
+
+                indices.push((i+1)*height + j);
+                indices.push((i+1)*height + j);
                 indices.push((i+1)*height + j);
             }
         }
@@ -234,15 +268,15 @@ fn main() {
 
     let vertex_buffer = CpuAccessibleBuffer::<[Vertex]>::from_iter(
         device.clone(),
-        BufferUsage::all(),
+        BufferUsage::vertex_buffer(),
         false,
         vertices,
     )
     .unwrap();
 
-    let index_buffer = CpuAccessibleBuffer::<[u16]>::from_iter(
+    let index_buffer = CpuAccessibleBuffer::from_iter(
         device.clone(),
-        BufferUsage::all(),
+        BufferUsage::index_buffer(),
         false,
         indices,
     )
@@ -451,7 +485,7 @@ fn main() {
                     )
                 .unwrap();
 
-            let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
+            let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
             let mut builder = AutoCommandBufferBuilder::primary(
                 device.clone(),
                 queue.family(),
@@ -474,8 +508,8 @@ fn main() {
                     set.clone(),
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
-                .bind_index_buffer(index_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)
+                .bind_index_buffer(index_buffer.clone())
                 .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                 .unwrap()
                 .end_render_pass()
@@ -547,10 +581,12 @@ layout(location = 0) in vec2 position;
 layout(location = 2) in vec2 coord;
 layout(location = 3) in float intensity;
 layout(location = 0) out vec2 tex_coords;
+layout(location = 2) out float vIntensity;
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
     tex_coords = coord;
+    vIntensity = intensity;
 }"
     }
 }
@@ -562,6 +598,7 @@ mod fs {
 #version 450
 
 layout(location = 0) in vec2 tex_coords;
+layout(location = 2) in float vIntensity;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 0) uniform sampler1D tex;
@@ -574,26 +611,8 @@ layout(push_constant) uniform PushConstantData {
   float time;
 } pc;
 
-#define rms pc.rms
-#define lowpass pc.lowpass
-#define specflux pc.specflux
-#define specavg pc.specavg
-
-// ShaderToy compat
-#define iTime pc.time
-#define fragCoord (tex_coords * iResolution)
-
-#define t iTime
-
-bool box(float x1, float x2, float y1, float y2) {
-    return tex_coords.x >= x1 && tex_coords.y >= y1 && tex_coords.x <= x2 && tex_coords.y <= y2;
-}
-
 void main() {
-    vec4 fft = texture(tex, tex_coords.x);
-    vec2 coord = 2.0*tex_coords - vec2(0.5, 0.5);
-    float d = sqrt(coord.x*coord.x + coord.y*coord.y);
-    f_color = vec4(d, d, d, 1.0); //vec4(sqrt(fft.r*fft.r+fft.g*fft.g) > tex_coords.y ? 1.0 : 0.0, box(0.8, 0.9, 0.8, 0.9) ? specavg * 0.05 : (box(0.0, 1.0, 0.4, 0.5) ? specflux[int(tex_coords.x * 8.0)] * 1.5 : 0.0), box(0.8, 0.9, 0.5, 0.6) ? rms * 10.0 : 0.0, 1.0);
+    f_color = texture(tex, tex_coords.x);
 }
 "
     }
