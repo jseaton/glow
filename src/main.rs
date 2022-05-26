@@ -211,7 +211,7 @@ fn main() {
 
     let vertices = file.lines().skip(2).map(|line| {
         let l = line.unwrap().split_whitespace().map(|x| x.parse::<f32>().unwrap()).collect::<Vec<f32>>();
-        Vertex { position: [l[0] / 1.777780, -l[1]], coord: [l[2], 1.0 - 2.0 * l[3]], intensity: l[4] }
+        Vertex { position: [l[0] / 1.777780, -l[1]], coord: [l[2], 1.0 - l[3]], intensity: l[4] }
     }).collect::<Vec<_>>();
 
     let width  = 100;

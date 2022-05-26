@@ -12,7 +12,7 @@ vec2 rotate(vec2 p,float a){
 
 float map(vec3 p){
     for( int i = 0; i<8; ++i){
-        float t = iTime*0.2;
+        float t = iTime*0.2*0.2;
         p.xz =rotate(p.xz,t);
         p.xy =rotate(p.xy,t*1.89);
         p.xz = abs(p.xz);
@@ -45,7 +45,7 @@ vec4 mainImage()
 {
     vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;
 	vec3 ro = vec3(0.,0.,-50.);
-    ro.xz = rotate(ro.xz,iTime);
+    ro.xz = rotate(ro.xz,iTime*0.2);
     vec3 cf = normalize(-ro);
     vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));
     vec3 cu = normalize(cross(cf,cs));

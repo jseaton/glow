@@ -21,6 +21,6 @@ layout(push_constant) uniform PushConstantData {
 
 // ShaderToy compat
 #define iTime pc.time
-#define iResolution vec2(1280.0, 1024.0)
+#define iResolution vec2(1280.0, 720.0)
 #define fragCoord (tex_coords * iResolution)
 
