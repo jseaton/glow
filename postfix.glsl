@@ -2,5 +2,6 @@
 void main() {
     vec4 w = texture(tex, tex_coords.x);
     vec4 c = mainImage();
-    f_color = vec4(c.rgb, c.a * vIntensity);
+    // Yes, we throw away alpha -- this is what ShaderToy does!
+    f_color = vec4(mix(vec3(1.0, 1.0, 1.0), c.rgb, 1.0), vIntensity);
 }
