@@ -9,7 +9,7 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
-    descriptor_set::{WriteDescriptorSet, single_layout_pool::SingleLayoutDescSetPool},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, single_layout_pool::SingleLayoutDescSetPool, DescriptorSetWithOffsets},
     device::{
         physical::{PhysicalDevice, PhysicalDeviceType},
         Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
@@ -51,7 +51,7 @@ use dsp::window;
 use std::time::SystemTime;
 use std::iter::zip;
 use num_complex::Complex;
-use std::io::{BufReader, BufRead, Read};
+use std::io::{BufReader, BufRead, Read, Cursor};
 use std::fs::File;
 use std::env;
 
@@ -64,6 +64,20 @@ fn compress(x: &Complex<f32>) -> f32 {
 }
 
 fn main() {
+    let filename = env::args().nth(1).unwrap();
+
+    let lines = BufReader::new(File::open(&filename).unwrap()).lines();
+
+    let mut texture_names = vec![];
+
+    for l in lines {
+        if let Ok(line) = l {
+            if let Some(tex_name) = line.strip_prefix("// tex ") {
+                texture_names.push(tex_name.to_string());
+            }
+        }
+    }
+
     let (client, _status) =
         jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER | jack::ClientOptions::SESSION_ID).unwrap();
     client.set_buffer_size(FRAME_SIZE as u32).unwrap();
@@ -221,27 +235,12 @@ fn main() {
     for i in 0..width-1 {
         for j in 0..height-1 {
             if vertices[(i*height + j) as usize].intensity > 0.1 {
-                // I don't know why I need this weird dummy triangle???
-                if j == 0 {
-                    indices.push(i*height + j);
-                    indices.push(i*height + j);
-                    indices.push(i*height + j);
-                } else {
-                    indices.pop();
-                    indices.pop();
-                    indices.pop();
-                }
-
                 indices.push(i*height + j);
                 indices.push((i+1)*height + j+1);
                 indices.push(i*height + j+1);
 
                 indices.push((i+1)*height + j+1);
                 indices.push(i*height + j);
-                indices.push((i+1)*height + j);
-
-                indices.push((i+1)*height + j);
-                indices.push((i+1)*height + j);
                 indices.push((i+1)*height + j);
             }
         }
@@ -266,9 +265,9 @@ fn main() {
     let vs = vs::load(device.clone()).unwrap();
 
     let fs = {
-        let arg = env::args().nth(1).unwrap();
-        let mut f = File::open(&arg)
-            .expect(&("Can't find file ".to_owned() + &arg));
+        let spirvname = filename.strip_suffix(".glsl").unwrap().to_owned() + &".spv".to_owned();
+        let mut f = File::open(&spirvname)
+            .expect(&("Can't find file ".to_owned() + &spirvname));
         let mut v = vec![];
         f.read_to_end(&mut v).unwrap();
         unsafe { ShaderModule::from_bytes(device.clone(), &v) }.unwrap()
@@ -305,7 +304,7 @@ fn main() {
     let pipeline = GraphicsPipeline::start()
         .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
         .vertex_shader(vs.entry_point("main").unwrap(), ())
-        .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::TriangleStrip))
+        .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::TriangleList))
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
         .fragment_shader(fs.entry_point("main").unwrap(), ())
         .color_blend_state(ColorBlendState::new(subpass.num_color_attachments()).blend_alpha())
@@ -326,8 +325,6 @@ fn main() {
     let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut viewport);
 
     let mut recreate_swapchain = false;
-    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-
     let mut push_constants = fs::ty::PushConstantData {
         rms:   0.0,
         lowpass: 0.0,
@@ -335,6 +332,64 @@ fn main() {
         specavg: 0.0,
         time: 0.0
     };
+
+    let textures_sampler = Sampler::new(
+        device.clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::Repeat; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let mut texture_descriptors = vec![];
+
+    for texture_name in &texture_names {
+        let png_bytes = std::fs::read(&texture_name).unwrap();
+        let cursor = Cursor::new(png_bytes);
+        let decoder = png::Decoder::new(cursor);
+        let mut reader = decoder.read_info().unwrap();
+        let info = reader.info();
+        let dimensions = ImageDimensions::Dim2d {
+            width: info.width,
+            height: info.height,
+            array_layers: 1,
+        };
+        let mut image_data = Vec::<u8>::new();
+        image_data.resize((info.width * info.height * 4) as usize, 0);
+        reader.next_frame(&mut image_data).unwrap();
+
+        let (image, future) = ImmutableImage::from_iter(
+            image_data,
+            dimensions,
+            MipmapsCount::One,
+            Format::R8G8B8A8_SRGB,
+            queue.clone(),
+        )
+        .unwrap();
+
+        texture_descriptors.push(
+            WriteDescriptorSet::image_view_sampler(
+                0,
+                ImageView::new_default(image).unwrap().clone(),
+                textures_sampler.clone(),
+            )
+        );
+
+        future.boxed().as_mut().cleanup_finished();
+    }
+
+    let textures_count = texture_descriptors.len();
+
+    let textures_set = PersistentDescriptorSet::new(
+        layout.clone(),
+        texture_descriptors
+    )
+    .unwrap();
+
+    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let start_time = SystemTime::now();
 
@@ -473,6 +528,12 @@ fn main() {
                 CommandBufferUsage::OneTimeSubmit,
             )
             .unwrap();
+
+            let mut sets: Vec<DescriptorSetWithOffsets> = vec![DescriptorSetWithOffsets::from(set.clone())];
+            if textures_count > 0 {
+                sets.push(DescriptorSetWithOffsets::from(textures_set.clone()));
+            }
+
             builder
                 .begin_render_pass(
                     framebuffers[image_num].clone(),
@@ -486,7 +547,7 @@ fn main() {
                     PipelineBindPoint::Graphics,
                     pipeline.layout().clone(),
                     0,
-                    set.clone(),
+                    sets,
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)
