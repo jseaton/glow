@@ -559,10 +559,10 @@ mod vs {
 #version 450
 
 layout(location = 0) in vec2 position;
-layout(location = 2) in vec2 coord;
-layout(location = 3) in float intensity;
+layout(location = 1) in vec2 coord;
+layout(location = 2) in float intensity;
 layout(location = 0) out vec2 tex_coords;
-layout(location = 2) out float vIntensity;
+layout(location = 1) out float vIntensity;
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
@@ -579,7 +579,7 @@ mod fs {
 #version 450
 
 layout(location = 0) in vec2 tex_coords;
-layout(location = 2) in float vIntensity;
+layout(location = 1) in float vIntensity;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 0) uniform sampler1D tex;
