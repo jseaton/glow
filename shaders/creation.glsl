@@ -1,7 +1,7 @@
 // Creation by Silexars
 // http://www.pouet.net/prod.php?which=57245
 // If you intend to reuse this shader, please add credits to 'Danilo Guanabara'
-// CC-AT-BY
+// CC BY-NC-SA Unported 3.0
 
 #define t iTime
 #define r iResolution.xy

@@ -1,4 +1,4 @@
-// CC-AT-BY Hadyn
+// CC BY-NC-SA 3.0 Unported Hadyn
 
 vec4 mainImage()
 {

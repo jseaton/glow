@@ -1,4 +1,4 @@
-// CC-AT-BY paperjack
+// CC BY-NC-SA 3.0 Unported paperjack
 // Inspiration and original code - 'Danilo Guanabara'
 
 #define t iTime

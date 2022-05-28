@@ -1,4 +1,4 @@
-// CC-AT-BY sunebear
+// CC BY-NC-SA 3.0 Unported sunebear
 
 precision highp float;
 

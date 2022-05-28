@@ -1,4 +1,4 @@
-// CC-AT-BY Primrose
+// CC BY-NC-SA 3.0 Unported Primrose
 
 #define NUM_LAYERS 8.
 

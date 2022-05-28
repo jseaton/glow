@@ -1,4 +1,4 @@
-// CC-AT-BY DanielXMoore
+// CC BY-NC-SA 3.0 Unported DanielXMoore
 
 // tex tex/domegrid.png
 layout(set = 1, binding = 0) uniform sampler2D iChannel0;

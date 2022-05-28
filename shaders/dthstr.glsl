@@ -1,4 +1,4 @@
-// CC-AT-BY amausagi
+// CC BY-NC-SA 3.0 Unported amausagi
 
 vec4 mainImage()
 {

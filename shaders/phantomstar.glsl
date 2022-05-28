@@ -1,4 +1,4 @@
-// CC-AT-BY kasari39
+// CC BY-NC-SA 3.0 Unported kasari39
 
 precision lowp float;
 

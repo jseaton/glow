@@ -1,4 +1,4 @@
-// CC-AT-BY fpiaggio
+// CC BY-NC-SA 3.0 Unported fpiaggio
 
 mat2 r2d(float a) {
 	float c = cos(a), s = sin(a);

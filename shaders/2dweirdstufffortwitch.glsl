@@ -1,4 +1,4 @@
-// CC-AT-BY mrange
+// CC BY-NC-SA 3.0 Unported mrange
 
 #define PI  3.141592654
 #define TAU (2.0*PI)

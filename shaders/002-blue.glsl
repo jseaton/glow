@@ -1,4 +1,4 @@
-// CC-AT-BY haquxx
+// CC BY-NC-SA 3.0 Unported haquxx
 
 float sdSphere(vec3 pos, float size)
 {

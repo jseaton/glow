@@ -1,4 +1,4 @@
-// CC-AT-BY fpiaggio
+// CC BY-NC-SA 3.0 Unported fpiaggio
 // TODO this one is set up to be audio reactive!
 
 float getSound() 

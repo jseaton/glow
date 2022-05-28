@@ -1,4 +1,4 @@
-// CC-AT-BY tdhooper
+// CC BY-NC-SA 3.0 Unported tdhooper
 
 #define MODEL_ROTATION vec2(.3, .25)
 #define CAMERA_ROTATION vec2(.5, .5)

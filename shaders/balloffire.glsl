@@ -1,4 +1,4 @@
-// CC-AT-BY Trisomie21
+// CC BY-NC-SA 3.0 Unported Trisomie21
 float snoise(vec3 uv, float res)
 {
 	const vec3 s = vec3(1e0, 1e2, 1e3);

@@ -1,4 +1,4 @@
-// CC-AT-BY ndel
+// CC BY-NC-SA 3.0 Unported ndel
 
 //Sci-fi radar based on the work of gmunk for Oblivion
 //http://work.gmunk.com/OBLIVION-GFX

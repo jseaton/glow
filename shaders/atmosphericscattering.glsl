@@ -1,4 +1,4 @@
-// CC-AT-BY
+// CC BY-NC-SA 3.0 Unported
 // Written by GLtracy
 
 // math const

@@ -1,4 +1,4 @@
-// CC-AT-BY whisky_shusuky
+// CC BY-NC-SA 3.0 Unported whisky_shusuky
 
 precision lowp float;
 

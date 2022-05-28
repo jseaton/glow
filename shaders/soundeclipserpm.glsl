@@ -1,4 +1,4 @@
-// CC-AT-BY sclavel
+// CC BY-NC-SA 3.0 Unported sclavel
 // credit: https://www.shadertoy.com/view/4tGXzt
 
 #define BEATMOVE 1

@@ -1,4 +1,4 @@
-// CC-AT-BY butadiene
+// CC BY-NC-SA 3.0 Unported butadiene
 
 float TK = 1.;
 float PI = 3.1415926535;
