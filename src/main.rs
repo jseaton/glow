@@ -57,6 +57,7 @@ use std::env;
 
 const FRAME_SIZE: usize = 512;
 const FFT_SIZE: usize = FRAME_SIZE / 2 + 1;
+const EXPFFT_SIZE: usize = FFT_SIZE / 8;
 
 fn compress(x: &Complex<f32>) -> f32 {
     let mag = (x.re * x.re + x.im * x.im).sqrt();
@@ -111,7 +112,8 @@ fn main() {
     let mut real_planner = RealFftPlanner::<f32>::new();
     let r2c = real_planner.plan_fft_forward(FRAME_SIZE);
 
-    let mut fft_data = [realfft::num_complex::Complex {re: 0.0, im: 0.0}; FFT_SIZE];
+    let mut fft_data    = [realfft::num_complex::Complex {re: 0.0, im: 0.0}; FFT_SIZE];
+    let mut expfft_data = vec![0_f32; FFT_SIZE];
 
     let mut image_data = [[0_f32; 2]; FFT_SIZE];
 
@@ -454,6 +456,13 @@ fn main() {
 
                     r2c.process(&mut windowed.to_owned(), &mut fft_data).unwrap();
 
+                    expfft_data = zip(
+                        expfft_data.iter(),
+                        fft_data.chunks(8).map(|e| {
+                            e.iter().map(|c| (c.re*c.re + c.im*c.im).sqrt()).sum::<f32>() / 8.0
+                        })
+                    ).map(|(prev, cur)| if &cur > prev { cur } else { 0.4 * prev + 0.6 * cur}).collect();
+
                     let spectrum = fft_data.iter().map(compress).collect::<Vec<_>>();
 
                     let mut specflux = [0.0; 8];
@@ -489,7 +498,7 @@ fn main() {
                 None => ()
             };
 
-            let (texture, mut tex_future) = {
+            let (fft_texture, mut fft_tex_future) = {
                 for i in 0..FFT_SIZE {
                     image_data[i][0] = image_data[i][0] * 0.1 + fft_data[i].re * 0.9;
                     image_data[i][1] = image_data[i][1] * 0.1 + fft_data[i].im * 0.9;
@@ -512,22 +521,43 @@ fn main() {
                 (ImageView::new_default(image).unwrap(), future)
             };
 
+            let (expfft_texture, mut expfft_tex_future) = {
+                let dimensions = ImageDimensions::Dim1d {
+                    width: EXPFFT_SIZE as u32,
+                    array_layers: 1
+                };
+
+                let (image, future) = ImmutableImage::from_iter(
+                    expfft_data.clone(),
+                    dimensions,
+                    MipmapsCount::One,
+                    Format::R32_SFLOAT,
+                    queue.clone(),
+                    )
+                    .unwrap();
+
+                (ImageView::new_default(image).unwrap(), future)
+            };
+
             let set = pool.next(
                 [WriteDescriptorSet::image_view_sampler(
                     0,
-                    texture.clone(),
+                    fft_texture.clone(),
                     sampler.clone(),
-                    )],
-                    )
-                .unwrap();
+                ),
+                WriteDescriptorSet::image_view_sampler(
+                    1,
+                    expfft_texture.clone(),
+                    sampler.clone(),
+                )],
+            ).unwrap();
 
             let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
             let mut builder = AutoCommandBufferBuilder::primary(
                 device.clone(),
                 queue.family(),
                 CommandBufferUsage::OneTimeSubmit,
-            )
-            .unwrap();
+            ).unwrap();
 
             let mut sets: Vec<DescriptorSetWithOffsets> = vec![DescriptorSetWithOffsets::from(set.clone())];
             if textures_count > 0 {
@@ -547,7 +577,7 @@ fn main() {
                     PipelineBindPoint::Graphics,
                     pipeline.layout().clone(),
                     0,
-                    sets,
+                    set //sets,
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)
@@ -580,7 +610,7 @@ fn main() {
                     previous_frame_end = Some(sync::now(device.clone()).boxed());
                 }
             }
-            tex_future.cleanup_finished();
+            fft_tex_future.cleanup_finished();
         }
         _ => (),
     });

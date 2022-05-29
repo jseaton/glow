@@ -5,6 +5,7 @@ layout(location = 1) in float vIntensity;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 0) uniform sampler1D fft_tex;
+layout(set = 0, binding = 1) uniform sampler1D expfft_tex;
 
 layout(push_constant) uniform PushConstantData {
   float rms;
