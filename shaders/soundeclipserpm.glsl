@@ -21,7 +21,7 @@ float luma(vec3 color) {
 }
 
 float getfrequency(float x) {
-	return texture(fft_tex, x).x + 0.06;
+	return texture(expfft_tex, x).x + 0.06;
 }
 
 float getfrequency_smooth(float x) {

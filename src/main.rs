@@ -348,7 +348,7 @@ fn main() {
 
     let mut texture_descriptors = vec![];
 
-    for texture_name in &texture_names {
+    for (i, texture_name) in texture_names.iter().enumerate() {
         let png_bytes = std::fs::read(&texture_name).unwrap();
         let cursor = Cursor::new(png_bytes);
         let decoder = png::Decoder::new(cursor);
@@ -374,7 +374,7 @@ fn main() {
 
         texture_descriptors.push(
             WriteDescriptorSet::image_view_sampler(
-                0,
+                2 + i as u32,
                 ImageView::new_default(image).unwrap().clone(),
                 textures_sampler.clone(),
             )
@@ -461,7 +461,7 @@ fn main() {
                         fft_data.chunks(8).map(|e| {
                             e.iter().map(|c| (c.re*c.re + c.im*c.im).sqrt()).sum::<f32>() / 8.0
                         })
-                    ).map(|(prev, cur)| if &cur > prev { cur } else { 0.4 * prev + 0.6 * cur}).collect();
+                    ).map(|(prev, cur)| if &cur > prev { 0.1 * prev + 0.9 * cur } else { 0.5 * prev + 0.5 * cur}).collect();
 
                     let spectrum = fft_data.iter().map(compress).collect::<Vec<_>>();
 
@@ -577,7 +577,7 @@ fn main() {
                     PipelineBindPoint::Graphics,
                     pipeline.layout().clone(),
                     0,
-                    set //sets,
+                    sets,
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)

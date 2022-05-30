@@ -136,7 +136,7 @@ vec4 mainImage()
         m += fade * NetLayer(st*size-M*z, i, iTime);
     }
     
-	float fft  = 10. * texture(fft_tex, .2).x;
+	float fft  = 10. * texture(expfft_tex, .2).x;
     float glow = -uv.y*fft*2.;
    
     vec3 baseCol = vec3(s, cos(t*.4), -sin(t*.24))*.4+.6;
