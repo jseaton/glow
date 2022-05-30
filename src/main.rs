@@ -57,7 +57,8 @@ use std::env;
 
 const FRAME_SIZE: usize = 512;
 const FFT_SIZE: usize = FRAME_SIZE / 2 + 1;
-const EXPFFT_SIZE: usize = FFT_SIZE / 8;
+const EXPFFT_CHUNKS: usize = 4;
+const EXPFFT_SIZE: usize = FFT_SIZE / EXPFFT_CHUNKS;
 
 fn compress(x: &Complex<f32>) -> f32 {
     let mag = (x.re * x.re + x.im * x.im).sqrt();
@@ -335,61 +336,67 @@ fn main() {
         time: 0.0
     };
 
-    let textures_sampler = Sampler::new(
-        device.clone(),
-        SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToBorder; 3],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let mut texture_descriptors = vec![];
-
-    for (i, texture_name) in texture_names.iter().enumerate() {
-        let png_bytes = std::fs::read(&texture_name).unwrap();
-        let cursor = Cursor::new(png_bytes);
-        let decoder = png::Decoder::new(cursor);
-        let mut reader = decoder.read_info().unwrap();
-        let info = reader.info();
-        let dimensions = ImageDimensions::Dim2d {
-            width: info.width,
-            height: info.height,
-            array_layers: 1,
-        };
-        let mut image_data = Vec::<u8>::new();
-        image_data.resize((info.width * info.height * 4) as usize, 0);
-        reader.next_frame(&mut image_data).unwrap();
-
-        let (image, future) = ImmutableImage::from_iter(
-            image_data,
-            dimensions,
-            MipmapsCount::One,
-            Format::R8G8B8A8_SRGB,
-            queue.clone(),
-        )
-        .unwrap();
-
-        texture_descriptors.push(
-            WriteDescriptorSet::image_view_sampler(
-                2 + i as u32,
-                ImageView::new_default(image).unwrap().clone(),
-                textures_sampler.clone(),
+    let textures_set = match texture_names.len() {
+        0 => None,
+        _ => {
+            let textures_layout = pipeline.layout().set_layouts().get(1).unwrap();
+            let textures_sampler = Sampler::new(
+                device.clone(),
+                SamplerCreateInfo {
+                    mag_filter: Filter::Linear,
+                    min_filter: Filter::Linear,
+                    address_mode: [SamplerAddressMode::ClampToBorder; 3],
+                    ..Default::default()
+                },
             )
-        );
+            .unwrap();
 
-        future.boxed().as_mut().cleanup_finished();
-    }
+            let mut texture_descriptors = vec![];
 
-    let textures_count = texture_descriptors.len();
+            for (i, texture_name) in texture_names.iter().enumerate() {
+                let png_bytes = std::fs::read(&texture_name).unwrap();
+                let cursor = Cursor::new(png_bytes);
+                let decoder = png::Decoder::new(cursor);
+                let mut reader = decoder.read_info().unwrap();
+                let info = reader.info();
+                let dimensions = ImageDimensions::Dim2d {
+                    width: info.width,
+                    height: info.height,
+                    array_layers: 1,
+                };
+                let mut image_data = Vec::<u8>::new();
+                image_data.resize((info.width * info.height * 4) as usize, 0);
+                reader.next_frame(&mut image_data).unwrap();
 
-    let textures_set = PersistentDescriptorSet::new(
-        layout.clone(),
-        texture_descriptors
-    )
-    .unwrap();
+                let (image, future) = ImmutableImage::from_iter(
+                    image_data,
+                    dimensions,
+                    MipmapsCount::One,
+                    Format::R8G8B8A8_SRGB,
+                    queue.clone(),
+                )
+                .unwrap();
+
+                texture_descriptors.push(
+                    WriteDescriptorSet::image_view_sampler(
+                        i as u32,
+                        ImageView::new_default(image).unwrap().clone(),
+                        textures_sampler.clone(),
+                    )
+                );
+
+                future.boxed().as_mut().cleanup_finished();
+            }
+
+            let textures_count = texture_descriptors.len();
+
+            Some(PersistentDescriptorSet::new(
+                textures_layout.clone(),
+                texture_descriptors
+            )
+            .unwrap())
+        }
+    };
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
@@ -458,8 +465,8 @@ fn main() {
 
                     expfft_data = zip(
                         expfft_data.iter(),
-                        fft_data.chunks(8).map(|e| {
-                            e.iter().map(|c| (c.re*c.re + c.im*c.im).sqrt()).sum::<f32>() / 8.0
+                        fft_data.chunks(EXPFFT_CHUNKS).map(|e| {
+                            e.iter().map(|c| (c.re*c.re + c.im*c.im).sqrt()).sum::<f32>() / (EXPFFT_CHUNKS as f32)
                         })
                     ).map(|(prev, cur)| if &cur > prev { 0.1 * prev + 0.9 * cur } else { 0.5 * prev + 0.5 * cur}).collect();
 
@@ -560,8 +567,8 @@ fn main() {
             ).unwrap();
 
             let mut sets: Vec<DescriptorSetWithOffsets> = vec![DescriptorSetWithOffsets::from(set.clone())];
-            if textures_count > 0 {
-                sets.push(DescriptorSetWithOffsets::from(textures_set.clone()));
+            if let Some(s) = &textures_set {
+                sets.push(DescriptorSetWithOffsets::from(s.clone()));
             }
 
             builder
@@ -577,7 +584,7 @@ fn main() {
                     PipelineBindPoint::Graphics,
                     pipeline.layout().clone(),
                     0,
-                    sets,
+                    sets.clone(),
                 )
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .push_constants(pipeline.layout().clone(), 0, push_constants)
@@ -674,6 +681,9 @@ layout(location = 1) in float vIntensity;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 0) uniform sampler1D fft_tex;
+layout(set = 0, binding = 1) uniform sampler1D expfft_tex;
+
+layout(set = 1, binding = 0) uniform sampler2D iChannel0;
 
 layout(push_constant) uniform PushConstantData {
   float rms;

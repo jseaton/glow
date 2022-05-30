@@ -1,0 +1,42 @@
+Welcome to the Shader Dome!
+
+The Shader Dome has no security so please play nice!
+
+You can play with the Shader Dome by putting a GLSL program in the shaders folder. Format is vaguely based on ShaderToy.
+
+Example program (paints half the dome red):
+
+vec4 mainImage() {
+    return vec4(tex_coords.x ? 0.5 ? 1.0 : 0.0. 0.0, 0.0, 1.0);
+}
+
+There are a variety of variables defined for you:
+tex_coords	x,y position
+time		current time
+
+Audio reactive variables (some of these aren't very useful!):
+fft_tex		FFT of audio, 1D texture (vec2 complex values)
+expfft_tex	smoothed lower precision FFT, 1D texture (float values)
+rms		audio volume estimate
+specflux        beat detection, frequency binned (array of 8 floats)
+specavg		beat detection, overall (float)
+
+ShaderToy compatiable variables:
+iTime		current time
+iResolution	screen resolution
+fragCoord 	tex_coords * iResolution
+
+Textures
+You can define 2D textures like this (note "binding =" changes):
+
+// tex tex/domegrid.png
+layout(set = 1, binding = 0) uniform sampler2D iChannel0;
+
+// tex tex/stars.png
+layout(set = 1, binding = 1) uniform sampler2D iChannel1;
+
+You can add images but they must be 8-bit RGBA PNGs. Please don't add anything that might violate the CoC!
+
+Have a look at the other programs, and the file prefix.glsl for more info.
+
+Have fun!

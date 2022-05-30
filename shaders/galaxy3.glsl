@@ -4,7 +4,7 @@
 // tex tex/graynoisemedium.png
 layout(set = 1, binding = 0) uniform sampler2D iChannel0;
 
-// tex tex/graynoisemedium.png
+// tex tex/stars.png
 layout(set = 1, binding = 1) uniform sampler2D iChannel1;
 
 #define iChannelResolution0 vec2(256.0, 256.0)

@@ -1,16 +1,12 @@
 // CC BY-NC-SA 3.0 Unported fpiaggio
-// TODO this one is set up to be audio reactive!
 
 float getSound() 
 {
     float s=0.;
-    //for (float i=0.; i<20.; i++) {
-        //s+=texture(iChannel0,vec2(0.,i/20.)).r;
-    //}
-    //for (float i=0.; i<20.; i++) {
-        //s+=texture(iChannel0,vec2(i/20.,0.)).r;
-    //}
-    return s/20.;
+    for (float i=0.; i<20.; i++) {
+        s+=texture(expfft_tex,i/20.).r;
+    }
+    return s/50.;
 }
     
 vec4 mainImage()
