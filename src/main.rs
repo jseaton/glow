@@ -42,7 +42,7 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowBuilder, Fullscreen},
 };
 use std::convert::TryFrom;
 use realfft::RealFftPlanner;
@@ -51,9 +51,10 @@ use dsp::window;
 use std::time::SystemTime;
 use std::iter::zip;
 use num_complex::Complex;
-use std::io::{BufReader, BufRead, Read, Cursor};
+use std::io::{BufReader, BufRead, Read, Cursor, ErrorKind};
 use std::fs::File;
 use std::env;
+use inotify::{Inotify, WatchMask};
 
 const FRAME_SIZE: usize = 512;
 const FFT_SIZE: usize = FRAME_SIZE / 2 + 1;
@@ -67,6 +68,7 @@ fn compress(x: &Complex<f32>) -> f32 {
 
 fn main() {
     let filename = env::args().nth(1).unwrap();
+    let time_limit = env::args().nth(2).unwrap_or("300".to_string()).parse::<f32>().unwrap();
 
     let lines = BufReader::new(File::open(&filename).unwrap()).lines();
 
@@ -184,6 +186,8 @@ fn main() {
     )
     .unwrap();
     let queue = queues.next().unwrap();
+
+    surface.window().set_fullscreen(Some(Fullscreen::Borderless(surface.window().current_monitor())));
 
     let (mut swapchain, images) = {
         let surface_capabilities = physical_device
@@ -388,8 +392,6 @@ fn main() {
                 future.boxed().as_mut().cleanup_finished();
             }
 
-            let textures_count = texture_descriptors.len();
-
             Some(PersistentDescriptorSet::new(
                 textures_layout.clone(),
                 texture_descriptors
@@ -397,6 +399,13 @@ fn main() {
             .unwrap())
         }
     };
+
+    let mut inotify = Inotify::init().unwrap();
+
+    inotify.add_watch(
+        "shaders",
+        WatchMask::MODIFY | WatchMask::CREATE,
+    ).unwrap();
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
@@ -618,6 +627,19 @@ fn main() {
                 }
             }
             fft_tex_future.cleanup_finished();
+            expfft_tex_future.cleanup_finished();
+
+            if push_constants.time > time_limit {
+                *control_flow = ControlFlow::Exit;
+            }
+            
+            let mut buffer = [0; 1024];
+            match inotify.read_events(&mut buffer) {
+                Ok(_) => *control_flow = ControlFlow::Exit,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => (),
+                _ => panic!("Error while reading events"),
+            }
+
         }
         _ => (),
     });
