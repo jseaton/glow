@@ -83,7 +83,7 @@ fn main() {
     }
 
     let (client, _status) =
-        jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER | jack::ClientOptions::SESSION_ID).unwrap();
+        jack::Client::new("glow", jack::ClientOptions::NO_START_SERVER).unwrap();
     client.set_buffer_size(FRAME_SIZE as u32).unwrap();
 
     let ringbuf = RingBuffer::<[f32; FRAME_SIZE]>::new(2);
