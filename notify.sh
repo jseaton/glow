@@ -1,15 +1,19 @@
 #!/bin/sh
 
-cargo run --release $1
+CURTIME=$(stat current -c %Y)
 while true; do
 	for f in shaders/*.glsl; do
-		echo doing $f
-		TIMES=$(make all 2>&1| grep Running | wc -l)
+		NEWTIME=$(stat current -c %Y)
 
-		echo times is $TIMES
+		echo $CURTIME $NEWTIME
 
-		if [ "$TIMES" -lt "1" ]; then
-			cargo run --release $f 50
+		if [ $NEWTIME -gt $CURTIME ]; then
+			echo "YES IT IS NEW"
+			cat current | xargs cargo run --release
+			NEWTIME=$CURTIME
+		else
+			echo "NO IT IS NOT NEW"
+			cargo run --release $f
 		fi
 	done
 done

@@ -403,7 +403,7 @@ fn main() {
     let mut inotify = Inotify::init().unwrap();
 
     inotify.add_watch(
-        "compiled",
+        "current",
         WatchMask::MODIFY | WatchMask::CREATE,
     ).unwrap();
 
