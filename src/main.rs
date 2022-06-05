@@ -272,7 +272,7 @@ fn main() {
     let vs = vs::load(device.clone()).unwrap();
 
     let fs = {
-        let spirvname = filename.strip_suffix(".glsl").unwrap().to_owned() + &".spv".to_owned();
+        let spirvname = "compiled/".to_owned() + &filename.strip_suffix(".glsl").unwrap().strip_prefix("shaders/").unwrap().to_owned() + &".spv".to_owned();
         let mut f = File::open(&spirvname)
             .expect(&("Can't find file ".to_owned() + &spirvname));
         let mut v = vec![];
@@ -403,7 +403,7 @@ fn main() {
     let mut inotify = Inotify::init().unwrap();
 
     inotify.add_watch(
-        "shaders",
+        "compiled",
         WatchMask::MODIFY | WatchMask::CREATE,
     ).unwrap();
 
